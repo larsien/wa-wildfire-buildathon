@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>스포캔 복합 산불 인프라 피해 지도 (2026)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── 헤더 ── */
+  #header {
+    background: linear-gradient(135deg, #7b1c1c, #c0392b);
+    padding: 12px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  }
+  #header h1 { font-size: 17px; font-weight: 700; }
+  #header .meta { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+  /* ── 상단 통계 바 ── */
+  #statsbar {
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    padding: 8px 18px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  }
+  .stat-pill {
+    background: #0f3460;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid #1a5276;
+  }
+  .stat-pill .val { font-weight: 700; color: #f39c12; }
+  .stat-pill.red .val  { color: #e74c3c; }
+  .stat-pill.blue .val { color: #3498db; }
+  .stat-pill.green .val{ color: #2ecc71; }
+  .stat-pill.purple .val{ color: #9b59b6; }
+
+  /* ── 레이어 컨트롤 패널 ── */
+  #layerpanel {
+    background: #16213e;
+    padding: 8px 18px;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    border-bottom: 1px solid #0f3460;
+  }
+  .layer-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: #0f3460; border: 1px solid #1a5276;
+    border-radius: 4px; padding: 4px 10px;
+    font-size: 12px; color: #ccc; cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .layer-btn.active { border-color: #3498db; background: #1a5276; color: #fff; }
+  .layer-btn .dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .layer-btn .line-swatch {
+    width: 20px; height: 3px; border-radius: 2px; flex-shrink: 0;
+  }
+  #layerpanel label { font-size: 12px; color: #aaa; }
+
+  /* ── 지도 ── */
+  #map { flex: 1; }
+
+  /* ── 팝업 ── */
+  .leaflet-popup-content-wrapper {
+    background: #16213e; color: #eee;
+    border: 1px solid #e74c3c; border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  }
+  .leaflet-popup-tip { background: #16213e; }
+  .popup-head { font-weight: 700; font-size: 14px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #0f3460; }
+  .popup-row { font-size: 12px; margin: 3px 0; display: flex; gap: 6px; }
+  .popup-row .lbl { color: #7fb3f5; min-width: 70px; flex-shrink: 0; }
+  .popup-row .val { color: #eee; }
+  .damage-chip {
+    display: inline-block; background: #7b1c1c; color: #ff8a80;
+    border-radius: 3px; padding: 1px 6px; font-size: 11px; margin: 2px 2px 0 0;
+  }
+
+  /* ── 범례 ── */
+  .legend {
+    background: rgba(22, 33, 62, 0.95);
+    border: 1px solid #0f3460; border-radius: 8px;
+    padding: 12px 14px; font-size: 12px; color: #ddd; line-height: 2;
+    min-width: 170px;
+  }
+  .legend b { color: #e74c3c; font-size: 13px; display: block; margin-bottom: 4px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-line { width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .legend-rect { width: 14px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>
+    <h1>🔥 스포캔 복합 산불 — 인프라 피해 지도 (2026.8.1)</h1>
+    <div class="meta">Old Trails · Autumn Lane · Fairview 3개 화재 | Spokane County, WA</div>
+  </div>
+  <div style="text-align:right; font-size:11px; opacity:0.8; line-height:1.6">
+    총 피해액 <b style="color:#f39c12">$10억+</b><br>
+    FEMA 공공지원 요청 <b style="color:#f39c12">$1억 3,300만+</b>
+  </div>
+</div>
+
+<div id="statsbar">
+  <div class="stat-pill red">🏘️ 건물 파괴 <span class="val">846채</span></div>
+  <div class="stat-pill red">🌲 소실 면적 <span class="val">10,363 acres</span></div>
+  <div class="stat-pill blue">💧 수도 피해 <span class="val">수도계량기 480개 + 수도관 파손</span></div>
+  <div class="stat-pill blue">⚡ 전력 피해 <span class="val">전봇대·변압기·전선 수백 개</span></div>
+  <div class="stat-pill green">🚧 도로 표지판 <span class="val">116개 소실</span></div>
+  <div class="stat-pill purple">🌳 공원·나무 <span class="val">나무 898그루 제거 예정</span></div>
+</div>
+
+<div id="layerpanel">
+  <label>레이어 표시:</label>
+  <div class="layer-btn active" id="btn-fire" onclick="toggleLayer('fire')">
+    <div class="dot" style="background:#ff4444; opacity:0.7"></div>
+    화재 구역
+  </div>
+  <div class="layer-btn active" id="btn-power" onclick="toggleLayer('power')">
+    <div class="line-swatch" style="background:#f1c40f"></div>
+    전력 인프라 피해
+  </div>
+  <div class="layer-btn active" id="btn-water" onclick="toggleLayer('water')">
+    <div class="line-swatch" style="background:#3498db"></div>
+    수도 인프라 피해
+  </div>
+  <div class="layer-btn active" id="btn-road" onclick="toggleLayer('road')">
+    <div class="line-swatch" style="background:#e67e22"></div>
+    도로 피해
+  </div>
+  <div class="layer-btn active" id="btn-park" onclick="toggleLayer('park')">
+    <div class="dot" style="background:#2ecc71"></div>
+    공원·시설 피해
+  </div>
+  <div class="layer-btn active" id="btn-evac" onclick="toggleLayer('evac')">
+    <div class="dot" style="background:#9b59b6; border-radius:0"></div>
+    대피 지역
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+// ── 지도 초기화 ──────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([47.72, -117.49], 11);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  maxZoom: 19
+}).addTo(map);
+
+// ── 레이어 그룹 ──────────────────────────────────────────────
+const layers = {
+  fire:  L.layerGroup().addTo(map),
+  power: L.layerGroup().addTo(map),
+  water: L.layerGroup().addTo(map),
+  road:  L.layerGroup().addTo(map),
+  park:  L.layerGroup().addTo(map),
+  evac:  L.layerGroup().addTo(map),
+};
+
+function toggleLayer(id) {
+  const btn = document.getElementById('btn-' + id);
+  if (map.hasLayer(layers[id])) {
+    map.removeLayer(layers[id]);
+    btn.classList.remove('active');
+  } else {
+    map.addLayer(layers[id]);
+    btn.classList.add('active');
+  }
+}
+
+// ── 유틸 ─────────────────────────────────────────────────────
+function firePolygon(coords, color, name, desc) {
+  return L.polygon(coords, {
+    color: color, weight: 2,
+    fillColor: color, fillOpacity: 0.22,
+    dashArray: '4 3'
+  }).bindPopup(`<div class="popup-head">🔥 ${name}</div><div style="font-size:12px;color:#ccc">${desc}</div>`);
+}
+
+function infraMarker(lat, lon, icon, color, title, rows) {
+  const rows_html = rows.map(([l, v]) =>
+    `<div class="popup-row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`
+  ).join('');
+  return L.circleMarker([lat, lon], {
+    radius: 8, fillColor: color, color: '#fff',
+    weight: 1.5, fillOpacity: 0.9
+  }).bindPopup(`<div class="popup-head">${icon} ${title}</div>${rows_html}`);
+}
+
+function infraLine(coords, color, weight, title, rows) {
+  const rows_html = rows.map(([l, v]) =>
+    `<div class="popup-row"><span class="lbl">${l}</span><span class="val">${v}</span></div>`
+  ).join('');
+  return L.polyline(coords, { color, weight, opacity: 0.85 })
+    .bindPopup(`<div class="popup-head">${title}</div>${rows_html}`);
+}
+
+function evacZone(coords, color, level, area, desc) {
+  return L.polygon(coords, {
+    color: color, weight: 1.5,
+    fillColor: color, fillOpacity: 0.12,
+    dashArray: '6 4'
+  }).bindPopup(
+    `<div class="popup-head">🚨 대피 구역 Level ${level}</div>` +
+    `<div class="popup-row"><span class="lbl">지역</span><span class="val">${area}</span></div>` +
+    `<div class="popup-row"><span class="lbl">설명</span><span class="val">${desc}</span></div>`
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 1. 화재 구역 (근사 경계)
+// ═══════════════════════════════════════════════════════════════
+
+// Old Trails Fire — 스포캔 북서부, Spokane River 북쪽~인디언 트레일 구역
+const oldTrailsCoords = [
+  [47.740, -117.600], [47.755, -117.570], [47.762, -117.540],
+  [47.758, -117.510], [47.748, -117.490], [47.732, -117.490],
+  [47.718, -117.510], [47.710, -117.530], [47.712, -117.560],
+  [47.722, -117.585], [47.733, -117.600]
+];
+firePolygon(oldTrailsCoords, '#ff2222',
+  'Old Trails Fire',
+  '8월 1일 방화(Arson) 시작 · 3,500+ acres · 인디언 트레일 등 주택가 직격<br>용의자 Aaron Farinacci 체포·자백'
+).addTo(layers.fire);
+
+// Autumn Lane Fire — 스포캔 강 북서쪽, Stevens County 인접
+const autumnLaneCoords = [
+  [47.800, -117.640], [47.820, -117.610], [47.828, -117.580],
+  [47.822, -117.550], [47.808, -117.535], [47.790, -117.540],
+  [47.775, -117.555], [47.770, -117.580], [47.778, -117.615],
+  [47.790, -117.635]
+];
+firePolygon(autumnLaneCoords, '#ff6600',
+  'Autumn Lane Fire',
+  '스포캔 강 북서쪽 Nine Mile Falls 인근 · 5,600+ acres<br>3개 화재 중 최종 최대 규모'
+).addTo(layers.fire);
+
+// Fairview Fire — 스포캔 북동쪽, Mead 방향
+const fairviewCoords = [
+  [47.760, -117.430], [47.778, -117.405], [47.788, -117.390],
+  [47.785, -117.365], [47.770, -117.355], [47.750, -117.360],
+  [47.738, -117.378], [47.735, -117.405], [47.742, -117.425]
+];
+firePolygon(fairviewCoords, '#ff9900',
+  'Fairview Fire',
+  '스포캔 북동부 Mead 방향 · Pleasant Valley Stables 통과<br>Mead 인근 wildland-urban interface 확산'
+).addTo(layers.fire);
+
+// ═══════════════════════════════════════════════════════════════
+// 2. 대피 구역
+// ═══════════════════════════════════════════════════════════════
+
+// Level 3 (즉시 대피) — 스포캔 북서부
+const evac3Coords = [
+  [47.745, -117.595], [47.758, -117.555], [47.752, -117.508],
+  [47.736, -117.495], [47.720, -117.515], [47.716, -117.555],
+  [47.728, -117.590]
+];
+evacZone(evac3Coords, '#e74c3c', 3, '스포캔 북서부 (Indian Trail, Westgate 등)',
+  '즉시 대피 명령 · 65,000명 대피 · VA 병원 포함').addTo(layers.evac);
+
+// Level 2 — 주변 확장 구역
+const evac2Coords = [
+  [47.755, -117.620], [47.780, -117.590], [47.770, -117.500],
+  [47.745, -117.485], [47.708, -117.508], [47.705, -117.570],
+  [47.720, -117.618]
+];
+evacZone(evac2Coords, '#e67e22', 2, '스포캔 북서부 확장 구역',
+  '대피 준비 명령 · Fairchild 공군기지 포함').addTo(layers.evac);
+
+// ═══════════════════════════════════════════════════════════════
+// 3. 전력 인프라 피해
+// ═══════════════════════════════════════════════════════════════
+
+// Avista 전력선 주요 피해 구간
+infraLine(
+  [[47.740, -117.590], [47.748, -117.555], [47.742, -117.520]],
+  '#f1c40f', 4,
+  '⚡ Avista 전력선 피해 — 북서부 간선',
+  [['회사', 'Avista Utilities'],
+   ['피해', '전봇대·도체·변압기·서비스선 수백 개 파손'],
+   ['피해액', '수백만 달러'],
+   ['정전', '40,000+ 가구 순간 정전']]
+).addTo(layers.power);
+
+infraLine(
+  [[47.770, -117.580], [47.758, -117.565], [47.752, -117.540]],
+  '#f1c40f', 4,
+  '⚡ Inland Power 전력선 피해 — Autumn Lane 구간',
+  [['회사', 'Inland Power & Light'],
+   ['피해', '전봇대, 도체(conductor), 변압기, 서비스선'],
+   ['피해액', '수백만 달러 (복구 진행 중)']]
+).addTo(layers.power);
+
+infraLine(
+  [[47.762, -117.430], [47.755, -117.415], [47.748, -117.400]],
+  '#f1c40f', 4,
+  '⚡ Fairview 전력선 피해',
+  [['구역', 'Mead 인근 북동부'],
+   ['피해', '서비스선 단전, 변압기 손상'],
+   ['복구', '우선 복구 구역 지정']]
+).addTo(layers.power);
+
+// ═══════════════════════════════════════════════════════════════
+// 4. 수도 인프라 피해
+// ═══════════════════════════════════════════════════════════════
+
+infraMarker(47.744, -117.540, '💧', '#3498db',
+  '수도 계량기 대량 피해',
+  [['피해 수량', '수도계량기 480개 + 관련 설비'],
+   ['구역', '스포캔 시내 북서부'],
+   ['원인', '화재 직접 소실'],
+   ['복구 비용', 'FEMA 공공지원 신청 포함']]
+).addTo(layers.water);
+
+infraMarker(47.738, -117.528, '💧', '#2980b9',
+  '6인치 수도 본관 파손',
+  [['피해', '6인치 수도 본관 파열'],
+   ['원인', '진화 작업 중 소방 펌핑 과부하'],
+   ['영향', '인근 소화전 수압 저하'],
+   ['복구', '긴급 수리 완료']]
+).addTo(layers.water);
+
+// 수도 재생시설 (Water Reclamation Facility) — 대피했던 시설
+infraMarker(47.700, -117.510, '🚰', '#1abc9c',
+  '수도 재생시설 (Water Reclamation Facility)',
+  [['상황', '화재 진행 중 예방적 대피'],
+   ['시장 발표', 'Lisa Brown 시장 직접 언급'],
+   ['결과', '피해 없이 복구 완료']]
+).addTo(layers.water);
+
+// ═══════════════════════════════════════════════════════════════
+// 5. 도로 피해
+// ═══════════════════════════════════════════════════════════════
+
+// Nine Mile Road / Spokane River 교량 접근로
+infraLine(
+  [[47.775, -117.600], [47.768, -117.580]],
+  '#e67e22', 5,
+  '🚧 Nine Mile Road — 도로 폐쇄·피해',
+  [['상태', '화재 진행 중 전면 폐쇄'],
+   ['피해', '도로 표지판 소실, 노면 손상'],
+   ['재개통', '진화 후 단계적 재개통']]
+).addTo(layers.road);
+
+// Spokane River 북쪽 접근 도로
+infraLine(
+  [[47.750, -117.570], [47.745, -117.550], [47.738, -117.540]],
+  '#e67e22', 5,
+  '🚧 Indian Trail Road — 주거지 진입로 피해',
+  [['상태', 'Level 3 대피령으로 전면 통제'],
+   ['피해', '노면 열손상, 가로수 전소'],
+   ['표지판', '116개 도로 표지판 소실(시 전체 집계)']]
+).addTo(layers.road);
+
+// Wandermere / Mead 도로
+infraLine(
+  [[47.778, -117.408], [47.768, -117.393], [47.758, -117.380]],
+  '#e67e22', 5,
+  '🚧 Fairview 구역 접근 도로 — 피해',
+  [['상태', 'Mead 방향 임시 통제'],
+   ['피해', '도로 인근 전신주 전소, 잔여 열기'],
+   ['복구', '표지판 교체 작업 진행']]
+).addTo(layers.road);
+
+// ═══════════════════════════════════════════════════════════════
+// 6. 공원·시설 피해
+// ═══════════════════════════════════════════════════════════════
+
+infraMarker(47.784, -117.581, '🏕️', '#2ecc71',
+  'Riverside State Park — Nine Mile Recreation Area 피해',
+  [['피해 면적', '1,500+ acres (공원 내 화재 구역)'],
+   ['피해 내용', '트레일 인프라 파괴, 침식 위험'],
+   ['강 영향', 'Little Spokane River 인근 심각한 침식 우려'],
+   ['복구 상태', 'WA State Parks 복구 계획 수립 중'],
+   ['피해 지점', 'Morin Trailhead, Nine Mile Recreation Area']]
+).addTo(layers.park);
+
+infraMarker(47.756, -117.490, '🏥', '#e74c3c',
+  'Mann-Grandstaff VA 병원 대피',
+  [['상황', '8월 1일 전체 대피 명령'],
+   ['규모', '스포캔 Satellite 시설 포함'],
+   ['복구', '8월 4일 이후 단계적 재개'],
+   ['결과', '사전 준비로 무피해 복구 성공']]
+).addTo(layers.park);
+
+infraMarker(47.734, -117.552, '♻️', '#27ae60',
+  'Northside 매립지 (Landfill) 피해',
+  [['피해액', '수백만 달러'],
+   ['내용', '매립지 운영 시설 화재 영향'],
+   ['복구', 'FEMA 공공지원 신청 항목 포함']]
+).addTo(layers.park);
+
+infraMarker(47.726, -117.535, '🗑️', '#95a5a6',
+  '시 쓰레기통 1,200개 소실',
+  [['수량', '플라스틱 쓰레기통 1,200개 소실'],
+   ['구역', '스포캔 시 전역 화재 구역'],
+   ['비용', '교체 비용 FEMA 청구 항목']]
+).addTo(layers.park);
+
+infraMarker(47.749, -117.516, '🚗', '#e74c3c',
+  '경찰차 소실',
+  [['피해', '스포캔 시 경찰차 1대 전소'],
+   ['상황', '화재 대응 중 대피 지연으로 소실'],
+   ['비용', 'FEMA 공공지원 신청']]
+).addTo(layers.park);
+
+infraMarker(47.762, -117.570, '🌳', '#16a085',
+  '공원 수목 898그루 제거 예정',
+  [['수량', '시 수목 898그루 제거 대상'],
+   ['이유', '화재 손상으로 안전 위협'],
+   ['구역', '스포캔 시 공원 및 가로수'],
+   ['복구', '단계적 식목 계획 수립 중']]
+).addTo(layers.park);
+
+// ═══════════════════════════════════════════════════════════════
+// 범례
+// ═══════════════════════════════════════════════════════════════
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+    <b>화재 구역</b>
+    <div class="legend-row"><div class="legend-rect" style="background:rgba(255,34,34,0.25);border:1.5px dashed #ff2222"></div> Old Trails Fire (방화)</div>
+    <div class="legend-row"><div class="legend-rect" style="background:rgba(255,102,0,0.25);border:1.5px dashed #ff6600"></div> Autumn Lane Fire</div>
+    <div class="legend-row"><div class="legend-rect" style="background:rgba(255,153,0,0.25);border:1.5px dashed #ff9900"></div> Fairview Fire</div>
+    <b style="margin-top:8px">인프라 피해</b>
+    <div class="legend-row"><div class="legend-line" style="background:#f1c40f"></div> 전력 인프라</div>
+    <div class="legend-row"><div class="legend-line" style="background:#3498db"></div> 수도 인프라</div>
+    <div class="legend-row"><div class="legend-line" style="background:#e67e22"></div> 도로 피해</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#2ecc71"></div> 공원·시설</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#e74c3c"></div> 긴급시설</div>
+    <b style="margin-top:8px">대피 구역</b>
+    <div class="legend-row"><div class="legend-rect" style="background:rgba(231,76,60,0.15);border:1.5px dashed #e74c3c"></div> Level 3 (즉시 대피)</div>
+    <div class="legend-row"><div class="legend-rect" style="background:rgba(230,126,34,0.15);border:1.5px dashed #e67e22"></div> Level 2 (대피 준비)</div>
+  `;
+  return div;
+};
+legend.addTo(map);
+
+// ── 인프라 피해 요약 info box ───────────────────────────────
+const infobox = L.control({ position: 'topleft' });
+infobox.onAdd = () => {
+  const div = L.DomUtil.create('div', 'legend');
+  div.style.maxWidth = '220px';
+  div.style.lineHeight = '1.7';
+  div.innerHTML = `
+    <b>📋 인프라 피해 요약</b>
+    <div style="font-size:11px;margin-top:6px">
+      <div>⚡ <b style="color:#f1c40f">전력</b>: 전봇대·변압기·전선 수백 개<br>&nbsp;&nbsp;&nbsp;(Avista + Inland Power 수백만 달러)</div>
+      <div style="margin-top:4px">💧 <b style="color:#3498db">수도</b>: 계량기 480개, 본관 파열,<br>&nbsp;&nbsp;&nbsp;수도 재생시설 대피</div>
+      <div style="margin-top:4px">🚧 <b style="color:#e67e22">도로</b>: 표지판 116개 소실,<br>&nbsp;&nbsp;&nbsp;주요 진입로 차단·열손상</div>
+      <div style="margin-top:4px">🌳 <b style="color:#2ecc71">공원·시설</b>: Riverside Park 1,500+ac,<br>&nbsp;&nbsp;&nbsp;수목 898그루, 매립지, 경찰차</div>
+      <div style="margin-top:4px">🏥 <b style="color:#e74c3c">긴급시설</b>: VA병원·법원 대피</div>
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #0f3460;color:#f39c12">
+        FEMA 인프라 지원 요청<br><b>$1,320만 (11개 카운티)</b><br>
+        스포캔 카운티 집중: <b>$7,050만</b>
+      </div>
+    </div>
+  `;
+  return div;
+};
+infobox.addTo(map);
+
+</script>
+</body>
+</html>
