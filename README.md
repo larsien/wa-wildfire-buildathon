@@ -31,7 +31,7 @@ Interactive maps and data analysis for Washington State wildfires and infrastruc
 - Key utilities affected: Avista Corp, Inland Power & Light, Bonneville Power Administration
 
 ## How to Run
-Open any `.html` file directly in a browser — no server or API key needed.
+Open `wa_wildfire_map.html` directly in a browser, keeping the `data/` folder beside it. No server or API key is needed.
 
 ## Sharing
 ```bash

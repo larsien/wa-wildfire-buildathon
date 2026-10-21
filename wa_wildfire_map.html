@@ -116,7 +116,7 @@ select,input[type=range]{background:#111827;color:#e5e7eb;border:1px solid #3741
 <div id="topbar">
   <div class="ctrl-grp">
     <label>Year</label>
-    <input type="range" id="year-slider" min="2008" max="2026" value="0" step="1" style="width:110px">
+    <input type="range" id="year-slider" min="0" max="19" value="0" step="1" style="width:110px">
     <div id="year-display">All Years</div>
     <button class="reset-btn" onclick="resetFilters()">Reset All</button>
   </div>
@@ -133,13 +133,9 @@ select,input[type=range]{background:#111827;color:#e5e7eb;border:1px solid #3741
   <div class="ctrl-grp">
     <label>Base Map</label>
     <select id="tile-select" onchange="switchTile(this.value)">
-      <optgroup label="CARTO (no key)">
-        <option value="carto-dark">CARTO Dark ★</option>
-        <option value="carto-light">CARTO Light</option>
-      </optgroup>
       <optgroup label="ESRI (no key)">
+        <option value="esri-hybrid">ESRI Hybrid 🛰+roads ★</option>
         <option value="esri-satellite">ESRI Satellite 🛰</option>
-        <option value="esri-hybrid">ESRI Hybrid 🛰+roads</option>
         <option value="esri-street">ESRI Street</option>
         <option value="esri-topo">ESRI Topo</option>
       </optgroup>
@@ -249,17 +245,17 @@ select,input[type=range]{background:#111827;color:#e5e7eb;border:1px solid #3741
   </div>
 </div>
 
+<script src="data/fires.js"></script>
+<script src="data/infra.js"></script>
 <script>
-const ALL_DATA = []; // loaded via fetch
-const INFRA_DATA = {}; // loaded via fetch
+const ALL_DATA = window.FIRE_DATA || [];
+const INFRA_DATA = window.FIRE_INFRA || {};
 
 // ── Tile definitions (verified free, no API key) ─────────────
 const TILES = {
-  'carto-dark':     { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', sub:'abcd', attr:'&copy; CARTO &copy; OSM', max:19 },
-  'carto-light':    { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', sub:'abcd', attr:'&copy; CARTO &copy; OSM', max:19 },
-  'esri-satellite': { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'&copy; Esri, Maxar', max:18 },
   'esri-hybrid':    { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'&copy; Esri', max:18,
                        extra:'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}' },
+  'esri-satellite': { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'&copy; Esri, Maxar', max:18 },
   'esri-street':    { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', attr:'&copy; Esri', max:18 },
   'esri-topo':      { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', attr:'&copy; Esri', max:18 },
   'osm':            { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', sub:'abc', attr:'&copy; OpenStreetMap contributors', max:19 },
@@ -282,23 +278,25 @@ function switchTile(k) {
     baseTile.bringToBack();
   }
 }
-switchTile('carto-dark');
+switchTile('esri-hybrid');
 
 // ── Pre-compute county stats ─────────────────────────────────
 const countyStats = {};
-ALL_DATA.forEach(d => {
-  if(!countyStats[d.county]) countyStats[d.county] = { count:0, totalAcres:0 };
-  countyStats[d.county].count++;
-  countyStats[d.county].totalAcres += d.acres;
-});
-Object.keys(countyStats).forEach(c => {
-  countyStats[c].avgAcres = countyStats[c].totalAcres / countyStats[c].count;
-});
+function buildCountyStats() {
+  ALL_DATA.forEach(d => {
+    if(!countyStats[d.county]) countyStats[d.county] = { count:0, totalAcres:0 };
+    countyStats[d.county].count++;
+    countyStats[d.county].totalAcres += d.acres;
+  });
+  Object.keys(countyStats).forEach(c => {
+    countyStats[c].avgAcres = countyStats[c].totalAcres / countyStats[c].count;
+  });
+}
 
 // ── Build sidebar filters dynamically ────────────────────────
 function buildSidebar() {
   // Counties
-  const counties = [...new Set(ALL_DATA.map(d=>d.county))].filter(c=>c&&c!=='NO DATA').sort();
+  const counties = [...new Set(ALL_DATA.map(d=>d.county))].filter(Boolean).sort();
   const countyDiv = document.getElementById('filter-county');
   countyDiv.innerHTML = counties.map(c => {
     const cnt = countyStats[c]?.count||0;
@@ -363,10 +361,12 @@ function getRadius(acres) {
 }
 
 let clusterGroup = null;
+let selectedArea = null;
 
 // ── Main update ───────────────────────────────────────────────
 function updateMap() {
-  const yearVal   = parseInt(document.getElementById('year-slider').value);
+  const yearStep  = parseInt(document.getElementById('year-slider').value);
+  const yearVal   = yearStep ? 2007 + yearStep : 0;
   const minAcres  = parseFloat(document.getElementById('min-acres').value);
   document.getElementById('year-display').textContent = yearVal===0?'All Years':String(yearVal);
 
@@ -391,6 +391,10 @@ function updateMap() {
   });
 
   document.getElementById('count').textContent = filtered.length.toLocaleString();
+  if(selectedArea && !filtered.includes(currentFire?.d)) {
+    map.removeLayer(selectedArea);
+    selectedArea = null;
+  }
 
   // Update sidebar counts
   const regions_arr = ['NORTHEAST','SOUTHEAST','PACIFIC CASC','SO PUGET','NORTHWEST','OLYMPIC'];
@@ -435,7 +439,7 @@ function updateMap() {
     marker.bindPopup(`
       <div class="pop-name">🔥 ${d.name}</div>
       <div class="pop-sub">${d.county} County · ${d.date}</div>
-      <div class="pop-hint">Click for full damage report ↗</div>
+      <div class="pop-hint">Click for estimated burn area and report ↗</div>
     `);
 
     marker.on('click', () => openDialog(d, infra));
@@ -451,10 +455,22 @@ let currentFire = null;
 
 function openDialog(d, infra) {
   currentFire = {d, infra};
+  if(selectedArea) map.removeLayer(selectedArea);
+  selectedArea = null;
+  if(d.acres > 0) {
+    // shortcut: acreage gives area but no perimeter; replace this circle when fire perimeter polygons are available.
+    selectedArea = L.circle([d.lat,d.lon], {
+      radius: Math.sqrt(d.acres * 4046.8564224 / Math.PI),
+      color:'#f87171', fillColor:'#ef4444', fillOpacity:0.2, weight:2, interactive:false
+    }).addTo(map);
+    selectedArea.bringToBack();
+    map.fitBounds(selectedArea.getBounds(), {padding:[40,40], maxZoom:16});
+  }
 
   document.getElementById('dlg-title').textContent = '🔥 '+d.name;
   document.getElementById('dlg-sub').textContent =
-    d.county+' County · '+d.date+' · '+d.cls+(d.year===2026?' · 2026 Season':'');
+    d.county+' County · '+d.date+' · '+d.cls+(d.year===2026?' · 2026 Season':'')+
+    (d.acres>0?' · Close to view estimated area':' · No acreage reported');
 
   // Stats
   document.getElementById('ds-acres').textContent = d.acres>0 ? d.acres.toLocaleString() : '< 1';
@@ -652,6 +668,7 @@ legend.onAdd = () => {
     <div><span class="leg-dot" style="background:#ffd600"></span>100–999 acres</div>
     <div><span class="leg-dot" style="background:#69f0ae"></span>10–99 acres</div>
     <div><span class="leg-dot" style="background:#40c4ff"></span>0–9 acres</div>
+    <div><span class="leg-dot" style="background:rgba(239,68,68,.2);border:2px solid #f87171"></span>Selected fire: estimated area (circle)</div>
     <b style="margin-top:8px">2026 Infra Risk (border)</b>
     <div><span class="leg-dot" style="background:none;border:2px solid #ef4444;width:10px;height:10px;display:inline-block;border-radius:50%;margin-right:6px;vertical-align:middle"></span>HIGH</div>
     <div><span class="leg-dot" style="background:none;border:2px solid #fbbf24;width:10px;height:10px;display:inline-block;border-radius:50%;margin-right:6px;vertical-align:middle"></span>MEDIUM</div>
@@ -663,24 +680,18 @@ legend.addTo(map);
 // ── Init ──────────────────────────────────────────────────────
 document.getElementById('year-slider').addEventListener('input', () => {
   const v = parseInt(document.getElementById('year-slider').value);
-  document.getElementById('year-display').textContent = v===0?'All Years':String(v);
+  document.getElementById('year-display').textContent = v===0?'All Years':String(2007+v);
   updateMap();
 });
 document.getElementById('min-acres').addEventListener('change', updateMap);
 
-// Load data from external JSON files
-Promise.all([
-  fetch('data/fires.json').then(r => r.json()),
-  fetch('data/infra.json').then(r => r.json())
-]).then(([fires, infra]) => {
-  ALL_DATA.push(...fires);
-  Object.assign(INFRA_DATA, infra);
+if (window.FIRE_DATA && window.FIRE_INFRA) {
+  buildCountyStats();
   buildSidebar();
   updateMap();
-}).catch(err => {
-  console.error('Data load failed:', err);
-  document.getElementById('count').textContent = 'Data load error — try opening locally';
-});
+} else {
+  document.getElementById('count').textContent = 'Data load error — keep the data folder beside this HTML file';
+}
 </script>
 </body>
 </html>
